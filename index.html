@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SKFX Signals App</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom Style -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- HEADER -->
+        <header class="app-header">
+            <div class="logo-area">
+                <div class="logo-icon"><i class="fa-solid fa-chart-line"></i></div>
+                <div class="logo-text">
+                    <h1>SKFX SIGNALS</h1>
+                    <span>Smart Money Concepts Dashboard</span>
+                </div>
+            </div>
+            
+            <div class="header-actions">
+                <div class="status-indicator">
+                    <span class="pulse-dot green" id="status-pulse"></span>
+                    <span id="connection-status">Connecting to Feed...</span>
+                </div>
+                <div class="divider"></div>
+                <button id="sound-toggle" class="action-btn" title="Toggle Sound Alerts">
+                    <i class="fa-solid fa-volume-high"></i>
+                </button>
+                <button id="settings-toggle" class="action-btn" title="Open Settings">
+                    <i class="fa-solid fa-sliders"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- MAIN LAYOUT -->
+        <div class="main-layout">
+            
+            <!-- LEFT COLUMN: Grid & Controls -->
+            <div class="left-panel">
+                <!-- ASSET TABS -->
+                <div class="tabs-container">
+                    <button class="tab-btn active" data-filter="all">All Markets</button>
+                    <button class="tab-btn" data-filter="crypto">Crypto</button>
+                    <button class="tab-btn" data-filter="forex">Forex</button>
+                    <button class="tab-btn" data-filter="indices">Indices</button>
+                    <button class="tab-btn" data-filter="commodities">Commodities</button>
+                </div>
+
+                <!-- DASHBOARD MATRIX GRID -->
+                <div class="grid-card">
+                    <div class="card-header">
+                        <h2>Market Scanner Matrix</h2>
+                        <div class="info-tag">Click cell to view chart & detailed metrics</div>
+                    </div>
+                    <div class="grid-table-container">
+                        <table id="matrix-table">
+                            <thead>
+                                <tr id="matrix-header">
+                                    <th>Asset</th>
+                                    <!-- Timeframes headers will be injected here -->
+                                </tr>
+                            </thead>
+                            <tbody id="matrix-body">
+                                <!-- Grid cells will be injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ALERTS FEED -->
+                <div class="alerts-card">
+                    <div class="card-header">
+                        <h2><i class="fa-solid fa-bell alert-icon"></i> Signal Stream</h2>
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <select id="alert-type-filter" class="filter-select" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); color: white; padding: 4px 8px; border-radius: var(--radius-sm); font-family: var(--font-primary); font-size: 12px; cursor: pointer;">
+                                <option value="all">All Alerts</option>
+                                <option value="entries">Entries Only</option>
+                                <option value="sweeps">Sweeps Only</option>
+                            </select>
+                            <button id="clear-alerts" class="text-btn">Clear Log</button>
+                        </div>
+                    </div>
+                    <div class="alerts-container" id="alerts-log">
+                        <div class="no-alerts">No active signals yet. Scanning markets...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT COLUMN: Chart & Detailed Info -->
+            <div class="right-panel">
+                <!-- DETAIL PANEL -->
+                <div class="detail-card">
+                    <div class="card-header">
+                        <h2><i class="fa-solid fa-circle-info"></i> Detailed Analysis</h2>
+                        <span class="selected-asset-badge" id="selected-asset-badge">BTCUSDT 15m</span>
+                    </div>
+                    <div class="metrics-grid">
+                        <div class="metric-box" id="metric-structure">
+                            <span class="label">Structure</span>
+                            <span class="value neutral">-</span>
+                        </div>
+                        <div class="metric-box" id="metric-ote">
+                            <span class="label">OTE Retracement</span>
+                            <span class="value neutral">-</span>
+                        </div>
+                        <div class="metric-box" id="metric-ob">
+                            <span class="label">Order Block (OB)</span>
+                            <span class="value neutral">-</span>
+                        </div>
+                        <div class="metric-box" id="metric-fvg">
+                            <span class="label">Fair Value Gap</span>
+                            <span class="value neutral">-</span>
+                        </div>
+                        <div class="metric-box" id="metric-sweep">
+                            <span class="label">Liquidity Sweep</span>
+                            <span class="value neutral">-</span>
+                        </div>
+                        <div class="metric-box" id="metric-pattern">
+                            <span class="label">Confirmation Pattern</span>
+                            <span class="value neutral">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- INTERACTIVE CHART -->
+                <div class="chart-card">
+                    <div class="card-header">
+                        <h2><i class="fa-solid fa-chart-candlestick"></i> TradingView Live Chart</h2>
+                    </div>
+                    <div class="chart-container" id="tv-chart-container">
+                        <!-- TradingView Widget will be injected here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SETTINGS PANEL (Drawer) -->
+        <div class="settings-drawer" id="settings-drawer">
+            <div class="drawer-header">
+                <h3>Dashboard Configuration</h3>
+                <button id="settings-close" class="close-btn"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="drawer-body">
+                <form id="settings-form">
+                    <div class="setting-group">
+                        <h4>Structure Settings</h4>
+                        <div class="form-row">
+                            <label for="pivot-lookback">Pivot Lookback</label>
+                            <input type="number" id="pivot-lookback" min="1" max="50" value="10">
+                        </div>
+                        <div class="form-row checkbox-row">
+                            <input type="checkbox" id="body-break" checked>
+                            <label for="body-break">Structure Body Break (Close vs High/Low)</label>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <h4>Scan Frequency & Controls</h4>
+                        <div class="form-row checkbox-row">
+                            <input type="checkbox" id="sound-alerts-enabled" checked>
+                            <label for="sound-alerts-enabled">Enable Sound Alerts</label>
+                        </div>
+                    </div>
+
+                    <div class="setting-group">
+                        <h4>Timeframes to Monitor</h4>
+                        <p class="setting-desc">Check the timeframes you want to display in the matrix.</p>
+                        <div class="checkbox-grid" id="timeframes-container"></div>
+                    </div>
+
+                    <div class="setting-group">
+                        <h4>Symbols to Monitor</h4>
+                        <p class="setting-desc">Check the symbols you want to display in the matrix.</p>
+                        
+                        <h5>Crypto</h5>
+                        <div class="checkbox-grid" id="symbols-crypto-container"></div>
+                        
+                        <h5>Forex Major & Minor</h5>
+                        <div class="checkbox-grid" id="symbols-forex-container"></div>
+                        
+                        <h5>Indices & Commodities</h5>
+                        <div class="checkbox-grid" id="symbols-indices-container"></div>
+                    </div>
+
+                    <button type="submit" class="save-btn">Apply Settings</button>
+                </form>
+            </div>
+        </div>
+        <div class="drawer-overlay" id="drawer-overlay"></div>
+    </div>
+
+    <!-- Web Audio API Beep Sounds -->
+    <script>
+        // Inline fallback sound effects using Web Audio API
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSignalSound(isBullish) {
+            if (!document.getElementById('sound-alerts-enabled').checked) return;
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                if (isBullish) {
+                    // Upward chime for Bullish
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+                    osc.frequency.exponentialRampToValueAtTime(783.99, audioCtx.currentTime + 0.15); // G5
+                    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.3);
+                } else {
+                    // Downward chime for Bearish
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(440.00, audioCtx.currentTime); // A4
+                    osc.frequency.exponentialRampToValueAtTime(293.66, audioCtx.currentTime + 0.15); // D4
+                    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.3);
+                }
+            } catch (e) {
+                console.error("Audio error:", e);
+            }
+        }
+    </script>
+    
+    <!-- TradingView widget loader script -->
+    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+    <!-- Application Logic -->
+    <script src="app.js"></script>
+</body>
+</html>
