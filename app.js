@@ -97,12 +97,51 @@ async function fetchWithProxy(url) {
     throw lastError || new Error("Failed to fetch via all proxy endpoints.");
 }
 
+function getBinanceInterval(tfId) {
+    if (tfId === '5m') return '5m';
+    if (tfId === '15m') return '15m';
+    if (tfId === '30m') return '30m';
+    if (tfId === '1h') return '1h';
+    if (tfId === '4h') return '4h';
+    if (tfId === '1d') return '1d';
+    if (tfId === '1wk') return '1w';
+    if (tfId === '1mo') return '1M';
+    return '15m';
+}
+
 async function fetchCandleData(symbol, tfObj) {
+    // 1. Direct Binance Fetch for Crypto (Fast & Real-time)
+    if (symbol === 'BTC-USD' || symbol === 'ETH-USD') {
+        const bSymbol = symbol.replace('-USD', 'USDT');
+        const bInterval = getBinanceInterval(tfObj.id);
+        const bUrl = `https://api.binance.com/api/v3/klines?symbol=${bSymbol}&interval=${bInterval}&limit=150`;
+        
+        try {
+            const res = await fetch(bUrl);
+            if (!res.ok) throw new Error(`Binance HTTP ${res.status}`);
+            const klines = await res.json();
+            
+            const candles = klines.map(k => ({
+                time: k[0],
+                open: parseFloat(k[1]),
+                high: parseFloat(k[2]),
+                low: parseFloat(k[3]),
+                close: parseFloat(k[4]),
+                volume: parseFloat(k[5])
+            }));
+            
+            return candles;
+        } catch (e) {
+            console.warn(`Binance direct fetch failed for ${symbol}, falling back to Yahoo Finance:`, e);
+        }
+    }
+    
+    // 2. Yahoo Finance Fetch with Proxy and Cache Buster
     const isH4 = tfObj.id === '4h';
     const interval = isH4 ? '60m' : tfObj.interval;
     const range = tfObj.range;
     
-    const yUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=${interval}&range=${range}`;
+    const yUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=${interval}&range=${range}&_=${Date.now()}`;
     
     try {
         const data = await fetchWithProxy(yUrl);
@@ -736,6 +775,7 @@ function updateDetailPanel() {
     const data = appState.matrixData[key];
     
     // Elements references
+    const priceEl = document.getElementById('metric-price').querySelector('.value');
     const structEl = document.getElementById('metric-structure').querySelector('.value');
     const oteEl = document.getElementById('metric-ote').querySelector('.value');
     const obEl = document.getElementById('metric-ob').querySelector('.value');
@@ -744,12 +784,16 @@ function updateDetailPanel() {
     const patternEl = document.getElementById('metric-pattern').querySelector('.value');
     
     if (!data) {
+        priceEl.innerText = '-';
         [structEl, oteEl, obEl, fvgEl, sweepEl, patternEl].forEach(el => {
             el.innerText = 'NO DATA';
             el.className = 'value neutral';
         });
         return;
     }
+    
+    // Price UI Sync
+    priceEl.innerText = data.close.toFixed(symObj.type === 'crypto' ? 2 : 5);
     
     // Structure UI Sync
     if (data.struct.sDir === 2) {
@@ -1063,8 +1107,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initial fetch scan
     queueFullScan();
     
-    // Interval schedules (Refreshes grid active items every 2 minutes)
+    // Interval schedules (Refreshes grid active items every 30 seconds)
     setInterval(() => {
         queueFullScan();
-    }, 120000);
+    }, 30000);
 });
