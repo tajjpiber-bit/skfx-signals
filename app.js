@@ -568,19 +568,25 @@ function queueFullScan() {
 
 // --- ALERTS ENGINE ---
 // --- PREMIUM SYNTHESIZED SOUNDS ---
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let synthAudioCtx = null;
 
 function playChime(type) {
     if (!config.soundAlerts) return;
     try {
-        const now = audioCtx.currentTime;
+        if (!synthAudioCtx) {
+            synthAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (synthAudioCtx.state === 'suspended') {
+            synthAudioCtx.resume();
+        }
+        const now = synthAudioCtx.currentTime;
         if (type === 'bullish') {
             const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
             notes.forEach((freq, idx) => {
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
+                const osc = synthAudioCtx.createOscillator();
+                const gain = synthAudioCtx.createGain();
                 osc.connect(gain);
-                gain.connect(audioCtx.destination);
+                gain.connect(synthAudioCtx.destination);
                 osc.type = 'triangle';
                 osc.frequency.setValueAtTime(freq, now + idx * 0.1);
                 gain.gain.setValueAtTime(0, now + idx * 0.1);
@@ -592,10 +598,10 @@ function playChime(type) {
         } else if (type === 'bearish') {
             const notes = [783.99, 659.25, 523.25, 392.00]; // G5, E5, C5, G4
             notes.forEach((freq, idx) => {
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
+                const osc = synthAudioCtx.createOscillator();
+                const gain = synthAudioCtx.createGain();
                 osc.connect(gain);
-                gain.connect(audioCtx.destination);
+                gain.connect(synthAudioCtx.destination);
                 osc.type = 'triangle';
                 osc.frequency.setValueAtTime(freq, now + idx * 0.1);
                 gain.gain.setValueAtTime(0, now + idx * 0.1);
@@ -607,10 +613,10 @@ function playChime(type) {
         } else if (type === 'win') {
             const notes = [587.33, 659.25, 880.00, 1046.50]; // D5, E5, A5, C6
             notes.forEach((freq, idx) => {
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
+                const osc = synthAudioCtx.createOscillator();
+                const gain = synthAudioCtx.createGain();
                 osc.connect(gain);
-                gain.connect(audioCtx.destination);
+                gain.connect(synthAudioCtx.destination);
                 osc.type = 'sine';
                 osc.frequency.setValueAtTime(freq, now + idx * 0.08);
                 gain.gain.setValueAtTime(0, now + idx * 0.08);
@@ -622,10 +628,10 @@ function playChime(type) {
         } else if (type === 'loss') {
             const notes = [329.63, 293.66, 261.63, 220.00]; // E4, D4, C4, A3
             notes.forEach((freq, idx) => {
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
+                const osc = synthAudioCtx.createOscillator();
+                const gain = synthAudioCtx.createGain();
                 osc.connect(gain);
-                gain.connect(audioCtx.destination);
+                gain.connect(synthAudioCtx.destination);
                 osc.type = 'sawtooth';
                 osc.frequency.setValueAtTime(freq, now + idx * 0.12);
                 gain.gain.setValueAtTime(0, now + idx * 0.12);

@@ -227,42 +227,7 @@
         <div class="drawer-overlay" id="drawer-overlay"></div>
     </div>
 
-    <!-- Web Audio API Beep Sounds -->
-    <script>
-        // Inline fallback sound effects using Web Audio API
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        function playSignalSound(isBullish) {
-            if (!document.getElementById('sound-alerts-enabled').checked) return;
-            try {
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                osc.connect(gain);
-                gain.connect(audioCtx.destination);
-                
-                if (isBullish) {
-                    // Upward chime for Bullish
-                    osc.type = 'sine';
-                    osc.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
-                    osc.frequency.exponentialRampToValueAtTime(783.99, audioCtx.currentTime + 0.15); // G5
-                    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-                    osc.start();
-                    osc.stop(audioCtx.currentTime + 0.3);
-                } else {
-                    // Downward chime for Bearish
-                    osc.type = 'sine';
-                    osc.frequency.setValueAtTime(440.00, audioCtx.currentTime); // A4
-                    osc.frequency.exponentialRampToValueAtTime(293.66, audioCtx.currentTime + 0.15); // D4
-                    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
-                    osc.start();
-                    osc.stop(audioCtx.currentTime + 0.3);
-                }
-            } catch (e) {
-                console.error("Audio error:", e);
-            }
-        }
-    </script>
+
     
     <!-- TradingView widget loader script -->
     <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
