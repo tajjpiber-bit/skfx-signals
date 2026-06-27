@@ -97,6 +97,16 @@ async function fetchWithProxy(url) {
             console.warn(`Proxy failed, trying next... Url: ${url}`, e);
         }
     }
+    
+    // Direct fetch fallback in case CORS policies permit it or headers are relaxed
+    try {
+        console.log(`Attempting direct fetch fallback for: ${url}`);
+        const res = await fetch(url);
+        if (res.ok) return await res.json();
+    } catch (e) {
+        console.warn(`Direct fetch fallback failed for: ${url}`, e);
+    }
+    
     throw lastError || new Error("Failed to fetch via all proxy endpoints.");
 }
 
@@ -342,63 +352,113 @@ function calculateOB(candles) {
     const N = candles.length;
     if (N < 6) return 0;
     
-    // Bullish OB: low[3] < low[4] and low[3] < low[2] and close > high[3]
-    const isBullOB = candles[N-4].low < candles[N-5].low && 
-                     candles[N-4].low < candles[N-3].low && 
-                     candles[N-1].close > candles[N-4].high;
-                     
-    // Bearish OB: high[3] > high[4] and high[3] > high[2] and close < low[3]
-    const isBearOB = candles[N-4].high > candles[N-5].high && 
-                     candles[N-4].high > candles[N-3].high && 
-                     candles[N-1].close < candles[N-4].low;
-                     
-    // Touches OB range check
-    const isTouchBull = isBullOB && candles[N-1].close >= candles[N-4].low && candles[N-1].close <= candles[N-4].high;
-    const isTouchBear = isBearOB && candles[N-1].close >= candles[N-4].low && candles[N-1].close <= candles[N-4].high;
+    let activeBullOB = null;
+    let activeBearOB = null;
     
-    if (isTouchBull) return 3;
-    if (isTouchBear) return 4;
-    if (isBullOB) return 1;
-    if (isBearOB) return 2;
-    return 0;
+    // Scan up to second-to-last candle to find active, unmitigated order blocks
+    for (let i = 2; i < N - 1; i++) {
+        // Bullish OB: Bearish down candle followed by immediate bullish expansion
+        const isBullishExpansion = candles[i+1].close > candles[i].high && candles[i].close < candles[i].open;
+        if (isBullishExpansion) {
+            activeBullOB = { top: candles[i].high, bottom: candles[i].low, index: i };
+        }
+        
+        // Bearish OB: Bullish up candle followed by immediate bearish expansion
+        const isBearishExpansion = candles[i+1].close < candles[i].low && candles[i].close > candles[i].open;
+        if (isBearishExpansion) {
+            activeBearOB = { top: candles[i].high, bottom: candles[i].low, index: i };
+        }
+        
+        // Check mitigation by subsequent candles before the current candle
+        if (activeBullOB && i > activeBullOB.index) {
+            if (candles[i].close < activeBullOB.bottom) {
+                activeBullOB = null;
+            }
+        }
+        if (activeBearOB && i > activeBearOB.index) {
+            if (candles[i].close > activeBearOB.top) {
+                activeBearOB = null;
+            }
+        }
+    }
+    
+    const current = candles[N-1];
+    let obStatus = 0;
+    
+    // Check if the current candle trades into or touches the unmitigated zone
+    if (activeBullOB) {
+        if (current.low <= activeBullOB.top && current.close >= activeBullOB.bottom) {
+            obStatus = 3; // Demand OB Touch
+        } else {
+            obStatus = 1; // Demand OB Active
+        }
+    }
+    if (activeBearOB) {
+        if (current.high >= activeBearOB.bottom && current.close <= activeBearOB.top) {
+            obStatus = 4; // Supply OB Touch
+        } else {
+            obStatus = 2; // Supply OB Active
+        }
+    }
+    
+    return obStatus;
 }
 
 function calculateFVG(candles, atrArray) {
     const N = candles.length;
     if (N < 6) return 0;
-    const atr = atrArray[N-1];
     
-    let bHit = false;
-    let sHit = false;
+    let activeBullFVG = null;
+    let activeBearFVG = null;
     
-    // Bullish Gaps
-    if (candles[N-2].low > candles[N-4].high && (candles[N-2].low - candles[N-4].high) >= atr * 0.5) {
-        if (candles[N-1].close >= candles[N-4].high && candles[N-1].close <= candles[N-2].low) {
-            bHit = true;
+    // Scan up to second-to-last candle to find active, unfilled FVGs
+    for (let i = 2; i < N - 1; i++) {
+        const atr = atrArray[i];
+        
+        // Bullish FVG: Low of candle i is above high of candle i-2
+        if (candles[i].low > candles[i-2].high && (candles[i].low - candles[i-2].high) >= atr * 0.2) {
+            activeBullFVG = { top: candles[i].low, bottom: candles[i-2].high, index: i };
+        }
+        
+        // Bearish FVG: High of candle i is below low of candle i-2
+        if (candles[i].high < candles[i-2].low && (candles[i-2].low - candles[i].high) >= atr * 0.2) {
+            activeBearFVG = { top: candles[i-2].low, bottom: candles[i].high, index: i };
+        }
+        
+        // Check mitigation by subsequent candles
+        if (activeBullFVG && i > activeBullFVG.index) {
+            if (candles[i].low <= activeBullFVG.bottom) {
+                activeBullFVG = null;
+            }
+        }
+        if (activeBearFVG && i > activeBearFVG.index) {
+            if (candles[i].high >= activeBearFVG.top) {
+                activeBearFVG = null;
+            }
         }
     }
-    if (candles[N-3].low > candles[N-5].high && (candles[N-3].low - candles[N-5].high) >= atr * 0.5) {
-        if (candles[N-1].close >= candles[N-5].high && candles[N-1].close <= candles[N-3].low) {
-            bHit = true;
+    
+    const current = candles[N-1];
+    let fvgStatus = 0;
+    let isBullHit = false;
+    let isBearHit = false;
+    
+    if (activeBullFVG) {
+        if (current.low <= activeBullFVG.top && current.close >= activeBullFVG.bottom) {
+            isBullHit = true;
+        }
+    }
+    if (activeBearFVG) {
+        if (current.high >= activeBearFVG.bottom && current.close <= activeBearFVG.top) {
+            isBearHit = true;
         }
     }
     
-    // Bearish Gaps
-    if (candles[N-2].high < candles[N-4].low && (candles[N-4].low - candles[N-2].high) >= atr * 0.5) {
-        if (candles[N-1].close <= candles[N-4].low && candles[N-1].close >= candles[N-2].high) {
-            sHit = true;
-        }
-    }
-    if (candles[N-3].high < candles[N-5].low && (candles[N-5].low - candles[N-3].high) >= atr * 0.5) {
-        if (candles[N-1].close <= candles[N-5].low && candles[N-1].close >= candles[N-3].high) {
-            sHit = true;
-        }
-    }
+    if (isBullHit && isBearHit) fvgStatus = 3;
+    else if (isBullHit) fvgStatus = 1;
+    else if (isBearHit) fvgStatus = 2;
     
-    if (bHit && sHit) return 3;
-    if (bHit) return 1;
-    if (sHit) return 2;
-    return 0;
+    return fvgStatus;
 }
 
 function calculateSweep(candles) {
@@ -454,12 +514,16 @@ function scanConfirmationPatterns(candles, struct, ob, fvg, sweep) {
         if (isBullEngulfing) return { signal: 'BUY', pattern: 'Bullish Engulfing' };
         if (isHammer) return { signal: 'BUY', pattern: 'Hammer / Pin Bar' };
         if (sweep === 2) return { signal: 'BUY', pattern: 'Bullish Sweep' };
+        if (ob === 3) return { signal: 'BUY', pattern: 'Demand OB Mitigation' };
+        if (fvg === 1 || fvg === 3) return { signal: 'BUY', pattern: 'Bullish FVG Touch' };
     }
     
     if (isBearZone) {
         if (isBearEngulfing) return { signal: 'SELL', pattern: 'Bearish Engulfing' };
         if (isShootingStar) return { signal: 'SELL', pattern: 'Shooting Star / Pin Bar' };
         if (sweep === 0) return { signal: 'SELL', pattern: 'Bearish Sweep' };
+        if (ob === 4) return { signal: 'SELL', pattern: 'Supply OB Mitigation' };
+        if (fvg === 2 || fvg === 3) return { signal: 'SELL', pattern: 'Bearish FVG Touch' };
     }
     
     return { signal: 'none', pattern: '-' };
@@ -482,6 +546,27 @@ function analyzeAsset(candles) {
     
     const confirm = scanConfirmationPatterns(closedCandles, struct, ob, fvg, sweep);
     
+    // Daily/Weekly Trend Bias calculation
+    // Bullish structure = BULL, Bearish structure = BEAR. Neutral structure falls back to 20 SMA.
+    let bias = 'NEUTRAL';
+    const closeVal = closedCandles[N-1].close;
+    if (struct.sDir === 2) {
+        bias = 'BULL';
+    } else if (struct.sDir === 1) {
+        bias = 'BEAR';
+    } else {
+        if (N >= 20) {
+            let sum = 0;
+            for (let j = N - 20; j < N; j++) {
+                sum += closedCandles[j].close;
+            }
+            const sma20 = sum / 20;
+            bias = closeVal >= sma20 ? 'BULL' : 'BEAR';
+        } else {
+            bias = closeVal >= closedCandles[0].close ? 'BULL' : 'BEAR';
+        }
+    }
+    
     return {
         candles: closedCandles,
         struct,
@@ -490,7 +575,8 @@ function analyzeAsset(candles) {
         sweep,
         signal: confirm.signal,
         pattern: confirm.pattern,
-        close: closedCandles[N - 1].close
+        close: closedCandles[N - 1].close,
+        bias: bias
     };
 }
 
@@ -1200,12 +1286,43 @@ function renderAlertLogs() {
 
 // --- UI SYNC & RENDERERS ---
 
+function updateBiasDisplay(symbolId) {
+    const cell = document.getElementById(`bias_${symbolId}`);
+    if (!cell) return;
+    
+    const dailyData = appState.matrixData[`${symbolId}_1d`];
+    const weeklyData = appState.matrixData[`${symbolId}_1wk`];
+    
+    let dText = 'D: -';
+    let dStyle = 'color: var(--color-text-muted); background: rgba(255,255,255,0.03); border: 1px solid transparent;';
+    if (dailyData && dailyData.bias) {
+        const isBull = dailyData.bias === 'BULL';
+        dText = `D: ${dailyData.bias === 'BULL' ? 'BULL' : 'BEAR'}`;
+        dStyle = isBull ? 'color: var(--color-bull); background: var(--color-bull-bg); border: 1px solid rgba(0,230,118,0.25);' : 'color: var(--color-bear); background: var(--color-bear-bg); border: 1px solid rgba(255,23,68,0.25);';
+    }
+    
+    let wText = 'W: -';
+    let wStyle = 'color: var(--color-text-muted); background: rgba(255,255,255,0.03); border: 1px solid transparent;';
+    if (weeklyData && weeklyData.bias) {
+        const isBull = weeklyData.bias === 'BULL';
+        wText = `W: ${weeklyData.bias === 'BULL' ? 'BULL' : 'BEAR'}`;
+        wStyle = isBull ? 'color: var(--color-bull); background: var(--color-bull-bg); border: 1px solid rgba(0,230,118,0.25);' : 'color: var(--color-bear); background: var(--color-bear-bg); border: 1px solid rgba(255,23,68,0.25);';
+    }
+    
+    cell.innerHTML = `
+        <div style="display: flex; gap: 4px; justify-content: center; align-items: center;">
+            <span style="padding:2px 6px; border-radius:4px; font-weight:800; font-size:10px; ${dStyle}">${dText}</span>
+            <span style="padding:2px 6px; border-radius:4px; font-weight:800; font-size:10px; ${wStyle}">${wText}</span>
+        </div>
+    `;
+}
+
 function initializeMatrixTable() {
     const header = document.getElementById('matrix-header');
     const tbody = document.getElementById('matrix-body');
     
-    // Injects headers
-    header.innerHTML = '<th>Asset</th>' + TIMEFRAMES.filter(t => config.enabledTimeframes.includes(t.id)).map(t => `
+    // Injects headers including Bias column
+    header.innerHTML = '<th>Asset</th><th style="text-align:center">HTF Bias</th>' + TIMEFRAMES.filter(t => config.enabledTimeframes.includes(t.id)).map(t => `
         <th style="text-align:center">${t.name}</th>
     `).join('');
     
@@ -1243,6 +1360,12 @@ function initializeMatrixTable() {
                         <span class="asset-type-badge badge-${s.type}">${s.type}</span>
                     </div>
                 </td>
+                <td id="bias_${s.id}" style="text-align:center; padding: 12px 6px;">
+                    <div style="display: flex; gap: 4px; justify-content: center; align-items: center;">
+                        <span style="padding:2px 6px; border-radius:4px; font-weight:800; font-size:10px; color: var(--color-text-muted); background: rgba(255,255,255,0.03);">D: -</span>
+                        <span style="padding:2px 6px; border-radius:4px; font-weight:800; font-size:10px; color: var(--color-text-muted); background: rgba(255,255,255,0.03);">W: -</span>
+                    </div>
+                </td>
                 ${tfCells}
             </tr>
         `;
@@ -1259,6 +1382,7 @@ function initializeMatrixTable() {
     
     // Populate with cached data
     filteredSymbols.forEach(s => {
+        updateBiasDisplay(s.id);
         TIMEFRAMES.filter(t => config.enabledTimeframes.includes(t.id)).forEach(t => {
             updateMatrixCell(s.id, t.id);
         });
@@ -1274,6 +1398,10 @@ function updateMatrixCell(symbolId, tfId) {
     const inner = cell.querySelector('.cell-inner');
     const signalText = cell.querySelector('.cell-signal-text');
     const dots = cell.querySelectorAll('.indicator-dot');
+    
+    if (tfId === '1d' || tfId === '1wk') {
+        updateBiasDisplay(symbolId);
+    }
     
     if (!data) {
         inner.className = 'cell-inner';
@@ -1353,6 +1481,28 @@ function updateDetailPanel() {
     const fvgEl = document.getElementById('metric-fvg').querySelector('.value');
     const sweepEl = document.getElementById('metric-sweep').querySelector('.value');
     const patternEl = document.getElementById('metric-pattern').querySelector('.value');
+    const dValEl = document.getElementById('metric-daily-bias').querySelector('.value');
+    const wValEl = document.getElementById('metric-weekly-bias').querySelector('.value');
+    
+    // Sync Higher Timeframe Bias
+    const dailyData = appState.matrixData[`${symbolId}_1d`];
+    const weeklyData = appState.matrixData[`${symbolId}_1wk`];
+    
+    if (dailyData && dailyData.bias) {
+        dValEl.innerText = dailyData.bias === 'BULL' ? 'BULLISH' : 'BEARISH';
+        dValEl.className = dailyData.bias === 'BULL' ? 'value bull' : 'value bear';
+    } else {
+        dValEl.innerText = 'NO DATA';
+        dValEl.className = 'value neutral';
+    }
+    
+    if (weeklyData && weeklyData.bias) {
+        wValEl.innerText = weeklyData.bias === 'BULL' ? 'BULLISH' : 'BEARISH';
+        wValEl.className = weeklyData.bias === 'BULL' ? 'value bull' : 'value bear';
+    } else {
+        wValEl.innerText = 'NO DATA';
+        wValEl.className = 'value neutral';
+    }
     
     if (!data) {
         priceEl.innerText = '-';
