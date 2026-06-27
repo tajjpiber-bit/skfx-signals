@@ -572,121 +572,94 @@ function queueFullScan() {
 }
 
 // ==========================================================================
-// SESSION KILLZONE ENGINE
-// Tracks Asian, London, New York session H/L and detects liquidity sweeps
-// All times in UTC
+// SESSION KILLZONE ENGINE (NY TIMEZONE BASIS)
+// Tracks Asia, London, NY, London Close, and CBDR sessions in America/New_York time.
+// Detects liquidity sweeps of inactive session highs/lows.
 // ==========================================================================
 
 const SESSION_KILLZONES = {
-    sydney:  { startH: 21, endH: 30,  name: 'Sydney',   chipId: 'session-sydney',  dotId: 'dot-sydney'  }, // 21:00-06:00 UTC
-    asian:   { startH: 0,  endH: 9,   name: 'Asian',    chipId: 'session-asian',   dotId: 'dot-asian'   }, // 00:00-09:00 UTC
-    london:  { startH: 7,  endH: 16,  name: 'London',   chipId: 'session-london',  dotId: 'dot-london'  }, // 07:00-16:00 UTC
-    ny:      { startH: 13, endH: 22,  name: 'New York', chipId: 'session-ny',      dotId: 'dot-ny'      }  // 13:00-22:00 UTC
+    asian:       { startM: 1200, endM: 1440, name: 'Asia',         chipId: 'session-asian' },         // 20:00 - 00:00 (8:00 PM - 12:00 AM NY)
+    london:      { startM: 120,  endM: 300,  name: 'London',       chipId: 'session-london' },        // 02:00 - 05:00 (2:00 AM - 5:00 AM NY)
+    ny:          { startM: 420,  endM: 600,  name: 'New York',     chipId: 'session-ny' },            // 07:00 - 10:00 (7:00 AM - 10:00 AM NY)
+    londonClose: { startM: 600,  endM: 720,  name: 'London Close', chipId: 'session-london-close' },  // 10:00 - 12:00 (10:00 AM - 12:00 PM NY)
+    cbdr:        { startM: 810,  endM: 1200, name: 'CBDR',         chipId: 'session-cbdr' }           // 13:30 - 20:00 (1:30 PM - 8:00 PM NY)
 };
 
-// Per-symbol session H/L state: { [symId]: { asian: {h,l}, london: {h,l}, ny: {h,l} } }
+// Tracks active/inactive session levels: { [symId]: { [sessionKey]: { h, l, date } } }
 let sessionLevels = {};
-
-// Track which sweeps have already been alerted (prevent duplicate fires)
 let sessionSweepFired = {}; // key: `${symId}_${session}_${h|l}_${date}`
 
-function getUtcHour() {
-    return new Date().getUTCHours();
+function getNyTime() {
+    const optionsDate = { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" };
+    const optionsTime = { timeZone: "America/New_York", hour: "numeric", minute: "numeric", second: "numeric", hour12: false };
+    
+    const dStr = new Intl.DateTimeFormat("en-US", optionsDate).format(new Date());
+    const tStr = new Intl.DateTimeFormat("en-US", optionsTime).format(new Date());
+    
+    const [month, day, year] = dStr.split('/');
+    const [hour, min, sec] = tStr.split(':').map(Number);
+    
+    return {
+        hour,
+        min,
+        sec,
+        dateKey: `${year}-${month}-${day}`,
+        minutesFromMidnight: hour * 60 + min
+    };
 }
 
-function getUtcDateKey() {
-    const d = new Date();
-    return `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
-}
-
-function isInSession(session) {
-    const h = getUtcHour();
-    const s = SESSION_KILLZONES[session];
-    if (s.endH > 24) {
-        // Wraps midnight: e.g. 21:00-06:00 → (h >= 21) or (h < 6)
-        return h >= s.startH || h < (s.endH - 24);
-    }
-    return h >= s.startH && h < s.endH;
-}
-
-// Updates session clock chips in the header bar
 function updateSessionBar() {
-    const now = new Date();
-    const h = now.getUTCHours();
-    const m = now.getUTCMinutes();
-    const s = now.getUTCSeconds();
-    const clockEl = document.getElementById('utc-clock');
-    if (clockEl) {
-        clockEl.innerText = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    const ny = getNyTime();
+    
+    // Update NY clock
+    const nyClockEl = document.getElementById('ny-clock');
+    if (nyClockEl) {
+        nyClockEl.innerText = `${String(ny.hour).padStart(2,'0')}:${String(ny.min).padStart(2,'0')}:${String(ny.sec).padStart(2,'0')}`;
+    }
+    
+    // Update UTC clock
+    const utcClockEl = document.getElementById('utc-clock');
+    if (utcClockEl) {
+        const now = new Date();
+        utcClockEl.innerText = `${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}:${String(now.getUTCSeconds()).padStart(2,'0')}`;
     }
 
+    // Toggle active session chips
     Object.keys(SESSION_KILLZONES).forEach(key => {
-        const chip = document.getElementById(SESSION_KILLZONES[key].chipId);
+        const s = SESSION_KILLZONES[key];
+        const chip = document.getElementById(s.chipId);
         if (!chip) return;
-        const active = isInSession(key);
+        
+        const active = ny.minutesFromMidnight >= s.startM && ny.minutesFromMidnight < s.endM;
         if (active) {
             chip.classList.add('active');
         } else {
             chip.classList.remove('active');
-            chip.classList.remove('sweep-detected');
+            // Do not clear sweep-detected status automatically unless user refreshes or session starts
         }
     });
 }
 
-// Initialise or reset session levels at the start of each session
-function initSessionLevels(symId, price) {
-    if (!sessionLevels[symId]) {
-        sessionLevels[symId] = {};
-    }
-    Object.keys(SESSION_KILLZONES).forEach(key => {
-        if (isInSession(key)) {
-            if (!sessionLevels[symId][key]) {
-                sessionLevels[symId][key] = { h: price, l: price, date: getUtcDateKey() };
-            } else {
-                // Reset on new day
-                if (sessionLevels[symId][key].date !== getUtcDateKey()) {
-                    sessionLevels[symId][key] = { h: price, l: price, date: getUtcDateKey() };
-                }
-            }
-        } else {
-            // Session ended - clear for next occurrence
-            if (sessionLevels[symId] && sessionLevels[symId][key]) {
-                const prev = sessionLevels[symId][key];
-                // Keep prev H/L for sweep detection but mark as closed
-                sessionLevels[symId][key].closed = true;
-            }
-        }
-    });
-}
-
-// Update H/L during an active session
-function updateSessionHL(symId, high, low) {
-    if (!sessionLevels[symId]) return;
-    Object.keys(SESSION_KILLZONES).forEach(key => {
-        if (isInSession(key) && sessionLevels[symId][key]) {
-            const sl = sessionLevels[symId][key];
-            if (high > sl.h) sl.h = high;
-            if (low  < sl.l) sl.l = low;
-        }
-    });
-}
-
-// Detect if current price sweeps a previous session's H or L
 function detectSessionSweep(symObj, high, low, close) {
     const symId = symObj.id;
     if (!sessionLevels[symId]) return;
 
-    const dateKey = getUtcDateKey();
+    const ny = getNyTime();
     let sweepCount = 0;
 
     Object.keys(SESSION_KILLZONES).forEach(sessionKey => {
         const sl = sessionLevels[symId][sessionKey];
         if (!sl || !sl.h || !sl.l) return;
 
-        const sessionName = SESSION_KILLZONES[sessionKey].name;
+        // Liquidity Sweep is only valid if that session is NOT currently active
+        const isSessionActive = ny.minutesFromMidnight >= SESSION_KILLZONES[sessionKey].startM && ny.minutesFromMidnight < SESSION_KILLZONES[sessionKey].endM;
+        if (isSessionActive && sl.date === ny.dateKey) return;
 
-        // High Sweep: price wicked above the session high but closed below it (false breakout)
-        const hiKey = `${symId}_${sessionKey}_hi_${sl.h.toFixed(5)}`;
+        const sessionName = SESSION_KILLZONES[sessionKey].name;
+        const dec = symObj.type === 'crypto' ? 2 : 5;
+
+        // High Sweep: price wicked above the session high but closed below it
+        const hiKey = `${symId}_${sessionKey}_hi_${sl.h.toFixed(5)}_${sl.date}`;
         if (high > sl.h && close < sl.h && !sessionSweepFired[hiKey]) {
             sessionSweepFired[hiKey] = true;
             sweepCount++;
@@ -696,21 +669,21 @@ function detectSessionSweep(symObj, high, low, close) {
                 timeframe: 'Live',
                 kind: 'session',
                 type: 'BEAR SWEEP',
-                pattern: `${sessionName} Session High Sweep (${sl.h.toFixed(symObj.type === 'crypto' ? 2 : 5)})`,
-                price: high.toFixed(symObj.type === 'crypto' ? 2 : 5),
+                pattern: `${sessionName} Session High Sweep (${sl.h.toFixed(dec)})`,
+                price: high.toFixed(dec),
                 validity: 0,
                 sessionName: sessionName
             };
             appState.alertLogs.unshift(alertObj);
             playChime('bearish');
-            // Highlight session chip
+            
             const chip = document.getElementById(SESSION_KILLZONES[sessionKey].chipId);
             if (chip) chip.classList.add('sweep-detected');
             renderAlertLogs();
         }
 
         // Low Sweep: price wicked below session low but closed above it
-        const loKey = `${symId}_${sessionKey}_lo_${sl.l.toFixed(5)}`;
+        const loKey = `${symId}_${sessionKey}_lo_${sl.l.toFixed(5)}_${sl.date}`;
         if (low < sl.l && close > sl.l && !sessionSweepFired[loKey]) {
             sessionSweepFired[loKey] = true;
             sweepCount++;
@@ -720,14 +693,14 @@ function detectSessionSweep(symObj, high, low, close) {
                 timeframe: 'Live',
                 kind: 'session',
                 type: 'BULL SWEEP',
-                pattern: `${sessionName} Session Low Sweep (${sl.l.toFixed(symObj.type === 'crypto' ? 2 : 5)})`,
-                price: low.toFixed(symObj.type === 'crypto' ? 2 : 5),
+                pattern: `${sessionName} Session Low Sweep (${sl.l.toFixed(dec)})`,
+                price: low.toFixed(dec),
                 validity: 0,
                 sessionName: sessionName
             };
             appState.alertLogs.unshift(alertObj);
             playChime('bullish');
-            // Highlight session chip
+            
             const chip = document.getElementById(SESSION_KILLZONES[sessionKey].chipId);
             if (chip) chip.classList.add('sweep-detected');
             renderAlertLogs();
@@ -747,20 +720,55 @@ function detectSessionSweep(symObj, high, low, close) {
     }
 }
 
-// Called from processQueue after fetching candle data for each symbol
 function runSessionAnalysis(symObj, candles) {
     if (!candles || candles.length === 0) return;
-    const last = candles[candles.length - 1];
-    const high  = last.high;
-    const low   = last.low;
-    const close = last.close;
+    const symId = symObj.id;
 
-    initSessionLevels(symObj.id, close);
-    updateSessionHL(symObj.id, high, low);
-    detectSessionSweep(symObj, high, low, close);
+    if (!sessionLevels[symId]) {
+        sessionLevels[symId] = {};
+    }
+
+    // Process last 40 candles to reconstruct session High/Low zones in NY time
+    const lookbackCandles = candles.slice(-40);
+    lookbackCandles.forEach(candle => {
+        const candleTime = candle.time;
+        if (!candleTime) return;
+        
+        const d = new Date(candleTime);
+        const optionsDate = { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" };
+        const optionsTime = { timeZone: "America/New_York", hour: "numeric", minute: "numeric", hour12: false };
+        
+        const dStr = new Intl.DateTimeFormat("en-US", optionsDate).format(d);
+        const tStr = new Intl.DateTimeFormat("en-US", optionsTime).format(d);
+        
+        const [month, day, year] = dStr.split('/');
+        const [hour, min] = tStr.split(':').map(Number);
+        
+        const cDateKey = `${year}-${month}-${day}`;
+        const cMin = hour * 60 + min;
+
+        Object.keys(SESSION_KILLZONES).forEach(key => {
+            const s = SESSION_KILLZONES[key];
+            const active = cMin >= s.startM && cMin < s.endM;
+            
+            if (active) {
+                if (!sessionLevels[symId][key] || sessionLevels[symId][key].date !== cDateKey) {
+                    sessionLevels[symId][key] = { h: candle.high, l: candle.low, date: cDateKey };
+                } else {
+                    const sl = sessionLevels[symId][key];
+                    if (candle.high > sl.h) sl.h = candle.high;
+                    if (candle.low < sl.l) sl.l = candle.low;
+                }
+            }
+        });
+    });
+
+    // Detect sweeps on the latest candle
+    const last = candles[candles.length - 1];
+    detectSessionSweep(symObj, last.high, last.low, last.close);
 }
 
-// Start UTC clock ticker
+// Start live clocks ticker
 setInterval(updateSessionBar, 1000);
 
 

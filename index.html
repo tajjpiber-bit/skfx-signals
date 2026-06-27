@@ -41,27 +41,31 @@
         </header>
 
         <!-- SESSION KILLZONES BAR -->
-        <div id="session-bar" style="display: flex; align-items: center; gap: 6px; padding: 6px 24px; background: rgba(0,0,0,0.25); border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 11px; font-family: var(--font-primary); overflow-x: auto; white-space: nowrap;">
-            <span style="color: var(--color-text-muted); font-weight: 600; margin-right: 6px;">SESSIONS:</span>
-            <div class="session-chip" id="session-sydney">
-                <span class="session-dot" id="dot-sydney"></span>
-                <span>Sydney <span class="session-time-label">21:00-06:00</span></span>
-            </div>
+        <div id="session-bar" style="display: flex; align-items: center; gap: 8px; padding: 6px 24px; background: rgba(0,0,0,0.25); border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 11px; font-family: var(--font-primary); overflow-x: auto; white-space: nowrap;">
+            <span style="color: var(--color-text-muted); font-weight: 600; margin-right: 4px;">SESSIONS (NY TIME):</span>
             <div class="session-chip" id="session-asian">
                 <span class="session-dot" id="dot-asian"></span>
-                <span>Asian <span class="session-time-label">00:00-09:00</span></span>
+                <span>Asia <span class="session-time-label">20:00-00:00</span></span>
             </div>
             <div class="session-chip" id="session-london">
                 <span class="session-dot" id="dot-london"></span>
-                <span>London <span class="session-time-label">07:00-16:00</span></span>
+                <span>London <span class="session-time-label">02:00-05:00</span></span>
             </div>
             <div class="session-chip" id="session-ny">
                 <span class="session-dot" id="dot-ny"></span>
-                <span>New York <span class="session-time-label">13:00-22:00</span></span>
+                <span>NY <span class="session-time-label">07:00-10:00</span></span>
+            </div>
+            <div class="session-chip" id="session-london-close">
+                <span class="session-dot" id="dot-london-close"></span>
+                <span>London Close <span class="session-time-label">10:00-12:00</span></span>
+            </div>
+            <div class="session-chip" id="session-cbdr">
+                <span class="session-dot" id="dot-cbdr"></span>
+                <span>CBDR <span class="session-time-label">13:30-20:00</span></span>
             </div>
             <div style="margin-left: auto; display: flex; align-items: center; gap: 16px;">
                 <div id="session-sweep-count" style="font-size: 10px; color: #f59e0b; font-weight: 700; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); padding: 2px 8px; border-radius: 4px; display: none;"></div>
-                <span style="color: var(--color-text-muted);">UTC: <strong id="utc-clock" style="color: white;">--:--:--</strong></span>
+                <span style="color: var(--color-text-muted);">NY: <strong id="ny-clock" style="color: white; margin-right: 8px;">--:--:--</strong> UTC: <strong id="utc-clock" style="color: white;">--:--:--</strong></span>
             </div>
         </div>
 
@@ -261,6 +265,6 @@
     <!-- TradingView widget loader script -->
     <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
     <!-- Application Logic -->
-    <script src="app.js?v=2.1.0"></script>
+    <script src="app.js?v=2.2.0"></script>
 </body>
 </html>
