@@ -887,6 +887,14 @@ function selectCell(symbolId, tfId) {
     const cell = document.getElementById(`cell_${symbolId}_${tfId}`);
     if (cell) cell.classList.add('selected-focus');
     
+    // Update external link
+    const tvSym = getTradingViewSymbol(symbolId);
+    const tvTf = getTradingViewTimeframe(tfId);
+    const extLink = document.getElementById('chart-external');
+    if (extLink) {
+        extLink.href = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(tvSym)}&interval=${tvTf}`;
+    }
+    
     updateDetailPanel();
     loadTradingViewWidget(symbolId, tfId);
 }
@@ -942,9 +950,9 @@ function loadTradingViewWidget(symbolId, tfId) {
             "hide_side_toolbar": false,
             "allow_symbol_change": true,
             "container_id": "tv-widget-box",
-            "studies": [
-                "MASimple@tv-basicstudies"
-            ]
+            "withdateranges": true,
+            "show_popup_button": true,
+            "studies": [] // Clean start so users can search & add any indicators
         });
     } catch (e) {
         console.error("TradingView widget load failed:", e);
@@ -1058,6 +1066,33 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('settings-close').addEventListener('click', closeSettings);
     document.getElementById('drawer-overlay').addEventListener('click', closeSettings);
     document.getElementById('settings-form').addEventListener('submit', applyFormSettings);
+    
+    // Full screen chart button binding
+    const fsBtn = document.getElementById('chart-fullscreen');
+    if (fsBtn) {
+        fsBtn.addEventListener('click', () => {
+            const chartCard = document.getElementById('chart-card-element');
+            if (!document.fullscreenElement) {
+                chartCard.requestFullscreen().catch(err => {
+                    console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        });
+    }
+
+    // Keep fullscreen button icon in sync
+    document.addEventListener('fullscreenchange', () => {
+        const btn = document.getElementById('chart-fullscreen');
+        if (btn) {
+            if (document.fullscreenElement) {
+                btn.innerHTML = '<i class="fa-solid fa-compress"></i>';
+            } else {
+                btn.innerHTML = '<i class="fa-solid fa-expand"></i>';
+            }
+        }
+    });
     
     document.getElementById('clear-alerts').addEventListener('click', () => {
         appState.alertLogs = [];
