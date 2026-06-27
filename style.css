@@ -860,7 +860,86 @@ body {
         height: auto;
         overflow: visible;
     }
-    .chart-card {
-        height: 500px;
-    }
 }
+
+/* =========================================================
+   SESSION KILLZONE BAR STYLES
+   ========================================================= */
+
+.session-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    border: 1px solid rgba(255,255,255,0.07);
+    background: rgba(255,255,255,0.03);
+    color: var(--color-text-secondary);
+    font-size: 11px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    cursor: default;
+}
+
+.session-chip.active {
+    border-color: rgba(0, 230, 118, 0.4);
+    background: rgba(0, 230, 118, 0.08);
+    color: #00e676;
+    box-shadow: 0 0 10px rgba(0,230,118,0.15);
+}
+
+.session-chip.sweep-detected {
+    border-color: rgba(245,158,11,0.6) !important;
+    background: rgba(245,158,11,0.12) !important;
+    color: #f59e0b !important;
+    box-shadow: 0 0 14px rgba(245,158,11,0.3) !important;
+    animation: sweep-pulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes sweep-pulse {
+    from { box-shadow: 0 0 6px rgba(245,158,11,0.2); }
+    to   { box-shadow: 0 0 18px rgba(245,158,11,0.5); }
+}
+
+.session-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.session-chip.active .session-dot {
+    background: #00e676;
+    box-shadow: 0 0 6px #00e676;
+    animation: blink-dot 1.2s ease-in-out infinite;
+}
+
+.session-chip.sweep-detected .session-dot {
+    background: #f59e0b;
+    box-shadow: 0 0 8px #f59e0b;
+    animation: blink-dot 0.6s ease-in-out infinite;
+}
+
+@keyframes blink-dot {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+}
+
+.session-time-label {
+    opacity: 0.55;
+    font-size: 10px;
+    margin-left: 2px;
+}
+
+/* Session sweep alert style */
+.alert-item.session-sweep {
+    border-left-color: #f59e0b;
+    background: rgba(245, 158, 11, 0.06);
+}
+
+.alert-item.session-sweep .alert-main {
+    color: #f59e0b;
+}
+

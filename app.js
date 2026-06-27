@@ -520,9 +520,14 @@ async function processQueue() {
         const candles = await fetchCandleData(symbolId, tfObj);
         if (candles) {
             const result = analyzeAsset(candles);
-             if (result) {
+            if (result) {
                 const oldResult = appState.matrixData[key];
                 appState.matrixData[key] = result;
+                
+                // Run session killzone sweep detection (uses the 1h / current TF candles)
+                if (tfObj.id === '1h' || tfObj.id === '15m') {
+                    runSessionAnalysis(symObj, candles);
+                }
                 
                 // Update active positions monitoring
                 evaluateActivePositions(symbolId, tfId, result);
@@ -565,6 +570,199 @@ function queueFullScan() {
         });
     });
 }
+
+// ==========================================================================
+// SESSION KILLZONE ENGINE
+// Tracks Asian, London, New York session H/L and detects liquidity sweeps
+// All times in UTC
+// ==========================================================================
+
+const SESSION_KILLZONES = {
+    sydney:  { startH: 21, endH: 30,  name: 'Sydney',   chipId: 'session-sydney',  dotId: 'dot-sydney'  }, // 21:00-06:00 UTC
+    asian:   { startH: 0,  endH: 9,   name: 'Asian',    chipId: 'session-asian',   dotId: 'dot-asian'   }, // 00:00-09:00 UTC
+    london:  { startH: 7,  endH: 16,  name: 'London',   chipId: 'session-london',  dotId: 'dot-london'  }, // 07:00-16:00 UTC
+    ny:      { startH: 13, endH: 22,  name: 'New York', chipId: 'session-ny',      dotId: 'dot-ny'      }  // 13:00-22:00 UTC
+};
+
+// Per-symbol session H/L state: { [symId]: { asian: {h,l}, london: {h,l}, ny: {h,l} } }
+let sessionLevels = {};
+
+// Track which sweeps have already been alerted (prevent duplicate fires)
+let sessionSweepFired = {}; // key: `${symId}_${session}_${h|l}_${date}`
+
+function getUtcHour() {
+    return new Date().getUTCHours();
+}
+
+function getUtcDateKey() {
+    const d = new Date();
+    return `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
+}
+
+function isInSession(session) {
+    const h = getUtcHour();
+    const s = SESSION_KILLZONES[session];
+    if (s.endH > 24) {
+        // Wraps midnight: e.g. 21:00-06:00 → (h >= 21) or (h < 6)
+        return h >= s.startH || h < (s.endH - 24);
+    }
+    return h >= s.startH && h < s.endH;
+}
+
+// Updates session clock chips in the header bar
+function updateSessionBar() {
+    const now = new Date();
+    const h = now.getUTCHours();
+    const m = now.getUTCMinutes();
+    const s = now.getUTCSeconds();
+    const clockEl = document.getElementById('utc-clock');
+    if (clockEl) {
+        clockEl.innerText = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    }
+
+    Object.keys(SESSION_KILLZONES).forEach(key => {
+        const chip = document.getElementById(SESSION_KILLZONES[key].chipId);
+        if (!chip) return;
+        const active = isInSession(key);
+        if (active) {
+            chip.classList.add('active');
+        } else {
+            chip.classList.remove('active');
+            chip.classList.remove('sweep-detected');
+        }
+    });
+}
+
+// Initialise or reset session levels at the start of each session
+function initSessionLevels(symId, price) {
+    if (!sessionLevels[symId]) {
+        sessionLevels[symId] = {};
+    }
+    Object.keys(SESSION_KILLZONES).forEach(key => {
+        if (isInSession(key)) {
+            if (!sessionLevels[symId][key]) {
+                sessionLevels[symId][key] = { h: price, l: price, date: getUtcDateKey() };
+            } else {
+                // Reset on new day
+                if (sessionLevels[symId][key].date !== getUtcDateKey()) {
+                    sessionLevels[symId][key] = { h: price, l: price, date: getUtcDateKey() };
+                }
+            }
+        } else {
+            // Session ended - clear for next occurrence
+            if (sessionLevels[symId] && sessionLevels[symId][key]) {
+                const prev = sessionLevels[symId][key];
+                // Keep prev H/L for sweep detection but mark as closed
+                sessionLevels[symId][key].closed = true;
+            }
+        }
+    });
+}
+
+// Update H/L during an active session
+function updateSessionHL(symId, high, low) {
+    if (!sessionLevels[symId]) return;
+    Object.keys(SESSION_KILLZONES).forEach(key => {
+        if (isInSession(key) && sessionLevels[symId][key]) {
+            const sl = sessionLevels[symId][key];
+            if (high > sl.h) sl.h = high;
+            if (low  < sl.l) sl.l = low;
+        }
+    });
+}
+
+// Detect if current price sweeps a previous session's H or L
+function detectSessionSweep(symObj, high, low, close) {
+    const symId = symObj.id;
+    if (!sessionLevels[symId]) return;
+
+    const dateKey = getUtcDateKey();
+    let sweepCount = 0;
+
+    Object.keys(SESSION_KILLZONES).forEach(sessionKey => {
+        const sl = sessionLevels[symId][sessionKey];
+        if (!sl || !sl.h || !sl.l) return;
+
+        const sessionName = SESSION_KILLZONES[sessionKey].name;
+
+        // High Sweep: price wicked above the session high but closed below it (false breakout)
+        const hiKey = `${symId}_${sessionKey}_hi_${sl.h.toFixed(5)}`;
+        if (high > sl.h && close < sl.h && !sessionSweepFired[hiKey]) {
+            sessionSweepFired[hiKey] = true;
+            sweepCount++;
+            const alertObj = {
+                time: new Date().toLocaleTimeString(),
+                symbol: symObj.name,
+                timeframe: 'Live',
+                kind: 'session',
+                type: 'BEAR SWEEP',
+                pattern: `${sessionName} Session High Sweep (${sl.h.toFixed(symObj.type === 'crypto' ? 2 : 5)})`,
+                price: high.toFixed(symObj.type === 'crypto' ? 2 : 5),
+                validity: 0,
+                sessionName: sessionName
+            };
+            appState.alertLogs.unshift(alertObj);
+            playChime('bearish');
+            // Highlight session chip
+            const chip = document.getElementById(SESSION_KILLZONES[sessionKey].chipId);
+            if (chip) chip.classList.add('sweep-detected');
+            renderAlertLogs();
+        }
+
+        // Low Sweep: price wicked below session low but closed above it
+        const loKey = `${symId}_${sessionKey}_lo_${sl.l.toFixed(5)}`;
+        if (low < sl.l && close > sl.l && !sessionSweepFired[loKey]) {
+            sessionSweepFired[loKey] = true;
+            sweepCount++;
+            const alertObj = {
+                time: new Date().toLocaleTimeString(),
+                symbol: symObj.name,
+                timeframe: 'Live',
+                kind: 'session',
+                type: 'BULL SWEEP',
+                pattern: `${sessionName} Session Low Sweep (${sl.l.toFixed(symObj.type === 'crypto' ? 2 : 5)})`,
+                price: low.toFixed(symObj.type === 'crypto' ? 2 : 5),
+                validity: 0,
+                sessionName: sessionName
+            };
+            appState.alertLogs.unshift(alertObj);
+            playChime('bullish');
+            // Highlight session chip
+            const chip = document.getElementById(SESSION_KILLZONES[sessionKey].chipId);
+            if (chip) chip.classList.add('sweep-detected');
+            renderAlertLogs();
+        }
+    });
+
+    // Update sweep count badge
+    const totalSessionSweeps = appState.alertLogs.filter(l => l.kind === 'session').length;
+    const badge = document.getElementById('session-sweep-count');
+    if (badge) {
+        if (totalSessionSweeps > 0) {
+            badge.style.display = 'block';
+            badge.innerText = `⚡ ${totalSessionSweeps} Session Sweep${totalSessionSweeps > 1 ? 's' : ''} Today`;
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+}
+
+// Called from processQueue after fetching candle data for each symbol
+function runSessionAnalysis(symObj, candles) {
+    if (!candles || candles.length === 0) return;
+    const last = candles[candles.length - 1];
+    const high  = last.high;
+    const low   = last.low;
+    const close = last.close;
+
+    initSessionLevels(symObj.id, close);
+    updateSessionHL(symObj.id, high, low);
+    detectSessionSweep(symObj, high, low, close);
+}
+
+// Start UTC clock ticker
+setInterval(updateSessionBar, 1000);
+
 
 // --- ALERTS ENGINE ---
 // --- PREMIUM SYNTHESIZED SOUNDS ---
@@ -947,6 +1145,7 @@ function renderAlertLogs() {
         if (filter === 'all') return true;
         if (filter === 'entries') return log.kind === 'entry';
         if (filter === 'sweeps') return log.kind === 'sweep';
+        if (filter === 'session') return log.kind === 'session';
         return true;
     });
     
@@ -957,10 +1156,17 @@ function renderAlertLogs() {
     
     container.innerHTML = filteredLogs.map(log => {
         const isBullish = log.type === 'BUY' || log.type === 'BULL SWEEP';
-        const itemClass = isBullish ? 'bullish' : 'bearish';
+        const isSessionSweep = log.kind === 'session';
+        const itemClass = isSessionSweep ? 'session-sweep' : (isBullish ? 'bullish' : 'bearish');
         
         let headerText = '';
-        if (log.kind === 'entry') {
+        if (isSessionSweep) {
+            const sweepIcon = isBullish ? '▲' : '▼';
+            headerText = `<strong style="color: #f59e0b;">${sweepIcon} ${log.type}</strong>
+                <span style="font-size:10px; font-weight:700; color:#f59e0b; margin-left:6px; padding:1px 6px; border: 1px solid rgba(245,158,11,0.4); border-radius:3px; background:rgba(245,158,11,0.1);">
+                    ⚡ ${log.sessionName} SESSION
+                </span>`;
+        } else if (log.kind === 'entry') {
             headerText = `<strong>${log.type} Entry <span style="font-size:10px; font-weight:700; color:#c09fff; margin-left:4px; padding:1px 4px; border: 1px solid rgba(192,159,255,0.3); border-radius:3px; background:rgba(101,31,255,0.1);">${log.validity}% Valid</span></strong>`;
         } else {
             headerText = `<strong style="background: rgba(101, 31, 255, 0.15); border: 1px solid var(--color-accent); color: #c09fff; padding: 2px 6px; border-radius: 4px; font-size: 10px;">${log.type}</strong>`;

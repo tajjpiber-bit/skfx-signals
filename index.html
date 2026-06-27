@@ -40,6 +40,31 @@
             </div>
         </header>
 
+        <!-- SESSION KILLZONES BAR -->
+        <div id="session-bar" style="display: flex; align-items: center; gap: 6px; padding: 6px 24px; background: rgba(0,0,0,0.25); border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 11px; font-family: var(--font-primary); overflow-x: auto; white-space: nowrap;">
+            <span style="color: var(--color-text-muted); font-weight: 600; margin-right: 6px;">SESSIONS:</span>
+            <div class="session-chip" id="session-sydney">
+                <span class="session-dot" id="dot-sydney"></span>
+                <span>Sydney <span class="session-time-label">21:00-06:00</span></span>
+            </div>
+            <div class="session-chip" id="session-asian">
+                <span class="session-dot" id="dot-asian"></span>
+                <span>Asian <span class="session-time-label">00:00-09:00</span></span>
+            </div>
+            <div class="session-chip" id="session-london">
+                <span class="session-dot" id="dot-london"></span>
+                <span>London <span class="session-time-label">07:00-16:00</span></span>
+            </div>
+            <div class="session-chip" id="session-ny">
+                <span class="session-dot" id="dot-ny"></span>
+                <span>New York <span class="session-time-label">13:00-22:00</span></span>
+            </div>
+            <div style="margin-left: auto; display: flex; align-items: center; gap: 16px;">
+                <div id="session-sweep-count" style="font-size: 10px; color: #f59e0b; font-weight: 700; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); padding: 2px 8px; border-radius: 4px; display: none;"></div>
+                <span style="color: var(--color-text-muted);">UTC: <strong id="utc-clock" style="color: white;">--:--:--</strong></span>
+            </div>
+        </div>
+
         <!-- MAIN LAYOUT -->
         <div class="main-layout">
             
@@ -86,6 +111,7 @@
                                     <option value="all">All Alerts</option>
                                     <option value="entries">Entries Only</option>
                                     <option value="sweeps">Sweeps Only</option>
+                                    <option value="session">Session Sweeps</option>
                                 </select>
                                 <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--color-text-secondary); cursor: pointer; user-select: none;">
                                     <input type="checkbox" id="alert-selected-only" style="cursor: pointer; accent-color: var(--color-accent);"> Current Pair Only
@@ -235,6 +261,6 @@
     <!-- TradingView widget loader script -->
     <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
     <!-- Application Logic -->
-    <script src="app.js?v=2.0.2"></script>
+    <script src="app.js?v=2.1.0"></script>
 </body>
 </html>
