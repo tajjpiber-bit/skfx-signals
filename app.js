@@ -1262,6 +1262,8 @@ function selectAsset(symbolId) {
 }
 
 function getTradingViewSymbol(symbolId) {
+    if (symbolId === 'XAUUSD=X') return 'OANDA:XAUUSD';
+    if (symbolId === 'XAGUSD=X') return 'OANDA:XAGUSD';
     if (symbolId === 'BTC-USD') return 'BINANCE:BTCUSDT';
     if (symbolId === 'ETH-USD') return 'BINANCE:ETHUSDT';
     if (symbolId.endsWith('=X')) {
@@ -1270,8 +1272,6 @@ function getTradingViewSymbol(symbolId) {
     }
     if (symbolId === 'NQ=F') return 'CME_MINI:NQ1!';
     if (symbolId === 'YM=F') return 'CBOT:YM1!';
-    if (symbolId === 'XAUUSD=X') return 'OANDA:XAUUSD';
-    if (symbolId === 'XAGUSD=X') return 'OANDA:XAGUSD';
     return symbolId;
 }
 
