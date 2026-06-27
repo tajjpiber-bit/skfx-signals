@@ -6,6 +6,7 @@
 
 // --- CONFIG & CONSTANTS ---
 const SYMBOLS = [
+    { id: 'XAUUSD=X', name: 'XAUUSD', type: 'commodities' },
     { id: 'BTC-USD', name: 'BTCUSD', type: 'crypto' },
     { id: 'ETH-USD', name: 'ETHUSD', type: 'crypto' },
     { id: 'EURUSD=X', name: 'EURUSD', type: 'forex' },
@@ -38,7 +39,6 @@ const SYMBOLS = [
     { id: 'NZDCHF=X', name: 'NZDCHF', type: 'forex' },
     { id: 'NQ=F', name: 'NASDAQ', type: 'indices' },
     { id: 'YM=F', name: 'US30', type: 'indices' },
-    { id: 'XAUUSD=X', name: 'XAUUSD', type: 'commodities' },
     { id: 'XAGUSD=X', name: 'XAGUSD', type: 'commodities' }
 ];
 
@@ -58,13 +58,13 @@ let config = {
     pivotLookback: 10,
     bodyBreak: true,
     soundAlerts: true,
-    enabledSymbols: ['BTC-USD', 'ETH-USD', 'EURUSD=X', 'GBPUSD=X', 'NQ=F', 'YM=F', 'XAUUSD=X', 'XAGUSD=X'],
+    enabledSymbols: ['XAUUSD=X', 'BTC-USD', 'ETH-USD', 'EURUSD=X', 'GBPUSD=X', 'NQ=F', 'YM=F', 'XAGUSD=X'],
     enabledTimeframes: ['5m', '15m', '30m', '1h', '4h', '1d', '1wk', '1mo']
 };
 
 // State Store
 let appState = {
-    selectedSymbol: 'BTC-USD',
+    selectedSymbol: 'XAUUSD=X',
     selectedTimeframe: '15m',
     currentFilter: 'all',
     activeTab: 'all',
@@ -936,8 +936,14 @@ function renderTradeTracker() {
 function renderAlertLogs() {
     const container = document.getElementById('alerts-log');
     const filter = document.getElementById('alert-type-filter')?.value || 'all';
+    const selectedOnly = document.getElementById('alert-selected-only')?.checked || false;
+    
+    // Find current active symbol name (e.g. BTCUSD, XAUUSD)
+    const activeSymObj = SYMBOLS.find(s => s.id === appState.selectedSymbol);
+    const activeName = activeSymObj ? activeSymObj.name : '';
     
     const filteredLogs = appState.alertLogs.filter(log => {
+        if (selectedOnly && log.symbol !== activeName) return false;
         if (filter === 'all') return true;
         if (filter === 'entries') return log.kind === 'entry';
         if (filter === 'sweeps') return log.kind === 'sweep';
@@ -1248,6 +1254,7 @@ function selectCell(symbolId, tfId) {
     
     updateDetailPanel();
     loadTradingViewWidget(symbolId, tfId);
+    renderAlertLogs(); // Update the alerts view if filtering active pair
 }
 
 function selectAsset(symbolId) {
@@ -1469,6 +1476,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const alertFilter = document.getElementById('alert-type-filter');
     if (alertFilter) {
         alertFilter.addEventListener('change', renderAlertLogs);
+    }
+    
+    const selectedOnlyFilter = document.getElementById('alert-selected-only');
+    if (selectedOnlyFilter) {
+        selectedOnlyFilter.addEventListener('change', renderAlertLogs);
     }
     
     document.getElementById('sound-toggle').addEventListener('click', () => {
