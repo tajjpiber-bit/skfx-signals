@@ -75,21 +75,39 @@
                     </div>
                 </div>
 
-                <!-- ALERTS FEED -->
-                <div class="alerts-card">
-                    <div class="card-header">
-                        <h2><i class="fa-solid fa-bell alert-icon"></i> Signal Stream</h2>
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <select id="alert-type-filter" class="filter-select" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); color: white; padding: 4px 8px; border-radius: var(--radius-sm); font-family: var(--font-primary); font-size: 12px; cursor: pointer;">
-                                <option value="all">All Alerts</option>
-                                <option value="entries">Entries Only</option>
-                                <option value="sweeps">Sweeps Only</option>
-                            </select>
-                            <button id="clear-alerts" class="text-btn">Clear Log</button>
+                <!-- BOTTOM SPLIT ROW: ALERTS & TRADE MONITOR -->
+                <div class="split-row" style="display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 20px;">
+                    <!-- ALERTS FEED -->
+                    <div class="alerts-card" style="height: 320px;">
+                        <div class="card-header">
+                            <h2><i class="fa-solid fa-bell alert-icon"></i> Signal Stream</h2>
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <select id="alert-type-filter" class="filter-select" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-color); color: white; padding: 4px 8px; border-radius: var(--radius-sm); font-family: var(--font-primary); font-size: 12px; cursor: pointer;">
+                                    <option value="all">All Alerts</option>
+                                    <option value="entries">Entries Only</option>
+                                    <option value="sweeps">Sweeps Only</option>
+                                </select>
+                                <button id="clear-alerts" class="text-btn">Clear Log</button>
+                            </div>
+                        </div>
+                        <div class="alerts-container" id="alerts-log" style="height: calc(320px - 58px); overflow-y: auto;">
+                            <div class="no-alerts">No active signals yet. Scanning markets...</div>
                         </div>
                     </div>
-                    <div class="alerts-container" id="alerts-log">
-                        <div class="no-alerts">No active signals yet. Scanning markets...</div>
+
+                    <!-- TRADE TRACKER & HISTORY -->
+                    <div class="tracker-card grid-card" style="height: 320px; display: flex; flex-direction: column;">
+                        <div class="card-header">
+                            <h2><i class="fa-solid fa-folder-open"></i> Position Tracker</h2>
+                            <div class="info-tag" id="history-stats" style="color: var(--color-bull); font-weight: 700;">Win Rate: 0%</div>
+                        </div>
+                        <div class="tracker-tabs" style="display: flex; gap: 10px; padding: 10px 20px; border-bottom: 1px solid var(--border-color);">
+                            <button class="tracker-tab-btn active" id="tab-active-trades" style="background: transparent; border: none; color: white; cursor: pointer; font-family: var(--font-primary); font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: var(--radius-sm); transition: var(--transition-smooth);">Active (0)</button>
+                            <button class="tracker-tab-btn" id="tab-history-trades" style="background: transparent; border: none; color: var(--color-text-secondary); cursor: pointer; font-family: var(--font-primary); font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: var(--radius-sm); transition: var(--transition-smooth);">History (0)</button>
+                        </div>
+                        <div class="tracker-container" id="tracker-list" style="flex: 1; overflow-y: auto; padding: 15px 20px;">
+                            <div class="no-trades" style="color: var(--color-text-muted); font-size: 12px; text-align: center; padding: 20px;">No active trade positions tracked yet.</div>
+                        </div>
                     </div>
                 </div>
             </div>

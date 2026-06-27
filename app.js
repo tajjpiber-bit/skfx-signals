@@ -72,7 +72,10 @@ let appState = {
     fetchQueue: [],
     isFetching: false,
     matrixData: {}, // Key: symbol_tf, Value: analysis results
-    alertLogs: []
+    alertLogs: [],
+    activeTrades: [],
+    historyTrades: [],
+    trackerTab: 'active'
 };
 
 // --- DATA FETCHING & PROXY SERVICE ---
@@ -517,9 +520,12 @@ async function processQueue() {
         const candles = await fetchCandleData(symbolId, tfObj);
         if (candles) {
             const result = analyzeAsset(candles);
-            if (result) {
+             if (result) {
                 const oldResult = appState.matrixData[key];
                 appState.matrixData[key] = result;
+                
+                // Update active positions monitoring
+                evaluateActivePositions(symbolId, tfId, result);
                 
                 // 1. Entry Signal change detection for alerts
                 if (result.signal !== 'none' && (!oldResult || oldResult.signal !== result.signal)) {
@@ -561,7 +567,104 @@ function queueFullScan() {
 }
 
 // --- ALERTS ENGINE ---
+// --- PREMIUM SYNTHESIZED SOUNDS ---
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playChime(type) {
+    if (!config.soundAlerts) return;
+    try {
+        const now = audioCtx.currentTime;
+        if (type === 'bullish') {
+            const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+            notes.forEach((freq, idx) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(freq, now + idx * 0.1);
+                gain.gain.setValueAtTime(0, now + idx * 0.1);
+                gain.gain.linearRampToValueAtTime(0.12, now + idx * 0.1 + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.1 + 0.35);
+                osc.start(now + idx * 0.1);
+                osc.stop(now + idx * 0.1 + 0.4);
+            });
+        } else if (type === 'bearish') {
+            const notes = [783.99, 659.25, 523.25, 392.00]; // G5, E5, C5, G4
+            notes.forEach((freq, idx) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(freq, now + idx * 0.1);
+                gain.gain.setValueAtTime(0, now + idx * 0.1);
+                gain.gain.linearRampToValueAtTime(0.12, now + idx * 0.1 + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.1 + 0.35);
+                osc.start(now + idx * 0.1);
+                osc.stop(now + idx * 0.1 + 0.4);
+            });
+        } else if (type === 'win') {
+            const notes = [587.33, 659.25, 880.00, 1046.50]; // D5, E5, A5, C6
+            notes.forEach((freq, idx) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+                gain.gain.setValueAtTime(0, now + idx * 0.08);
+                gain.gain.linearRampToValueAtTime(0.1, now + idx * 0.08 + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.3);
+                osc.start(now + idx * 0.08);
+                osc.stop(now + idx * 0.08 + 0.35);
+            });
+        } else if (type === 'loss') {
+            const notes = [329.63, 293.66, 261.63, 220.00]; // E4, D4, C4, A3
+            notes.forEach((freq, idx) => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(freq, now + idx * 0.12);
+                gain.gain.setValueAtTime(0, now + idx * 0.12);
+                gain.gain.linearRampToValueAtTime(0.05, now + idx * 0.12 + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.12 + 0.4);
+                osc.start(now + idx * 0.12);
+                osc.stop(now + idx * 0.12 + 0.45);
+            });
+        }
+    } catch(e) {
+        console.error("Audio failed:", e);
+    }
+}
+
+// --- CONFLUENCE VALIDITY SCANNER ---
+function calculateValidity(result) {
+    if (result.signal === 'none') return 0;
+    
+    let score = 40; // Base pattern confirmation score
+    
+    if (result.signal === 'BUY') {
+        if (result.struct.sDir === 2) score += 20; // Struct match
+        if (result.struct.ote > 0) score += 15;     // OTE zone
+        if (result.ob === 1 || result.ob === 3) score += 15; // OB touch
+        if (result.fvg === 1 || result.fvg === 3) score += 10; // FVG hit
+    } else if (result.signal === 'SELL') {
+        if (result.struct.sDir === 1) score += 20;
+        if (result.struct.ote > 0) score += 15;
+        if (result.ob === 2 || result.ob === 4) score += 15;
+        if (result.fvg === 2 || result.fvg === 3) score += 10;
+    }
+    
+    return score;
+}
+
+// --- ALERTS ENGINE ---
 function triggerAlert(symObj, tfObj, result, alertKind = 'entry') {
+    const validity = calculateValidity(result);
+    
     const alert = {
         time: new Date().toLocaleTimeString(),
         symbol: symObj.name,
@@ -569,17 +672,259 @@ function triggerAlert(symObj, tfObj, result, alertKind = 'entry') {
         kind: alertKind, // 'entry' or 'sweep'
         type: alertKind === 'entry' ? result.signal : (result.sweep === 2 ? 'BULL SWEEP' : 'BEAR SWEEP'),
         pattern: alertKind === 'entry' ? result.pattern : (result.sweep === 2 ? 'Bullish Liquidity Sweep' : 'Bearish Liquidity Sweep'),
-        price: result.close.toFixed(symObj.type === 'crypto' ? 2 : 5)
+        price: result.close.toFixed(symObj.type === 'crypto' ? 2 : 5),
+        validity: validity
     };
     
     appState.alertLogs.unshift(alert);
     
-    // Play Web Audio Sound
-    const isBullish = alert.type === 'BUY' || alert.type === 'BULL SWEEP';
-    playSignalSound(isBullish);
+    // Play Web Audio Chime and execute trade if it's an entry signal
+    if (alertKind === 'entry') {
+        playChime(result.signal === 'BUY' ? 'bullish' : 'bearish');
+        openTrackedPosition(symObj, tfObj, result, validity);
+    } else {
+        playChime(result.sweep === 2 ? 'bullish' : 'bearish');
+    }
     
     // Render Alert Log
     renderAlertLogs();
+}
+
+function openTrackedPosition(symObj, tfObj, result, validity) {
+    const duplicate = appState.activeTrades.find(t => t.symbolId === symObj.id && t.tfId === tfObj.id && t.direction === result.signal);
+    if (duplicate) return;
+    
+    const entry = result.close;
+    const atr = result.candles.length > 14 ? calculateATR(result.candles, 14)[result.candles.length - 1] : entry * 0.001;
+    
+    let sl = 0;
+    let tp1 = 0;
+    let tp2 = 0;
+    
+    if (result.signal === 'BUY') {
+        sl = Math.min(result.struct.sLow, entry - 1.5 * atr);
+        const risk = entry - sl;
+        tp1 = entry + 2 * risk;
+        tp2 = entry + 3 * risk;
+    } else {
+        sl = Math.max(result.struct.sHigh, entry + 1.5 * atr);
+        const risk = sl - entry;
+        tp1 = entry - 2 * risk;
+        tp2 = entry - 3 * risk;
+    }
+    
+    const newTrade = {
+        id: 'trade_' + Date.now() + '_' + Math.floor(Math.random()*1000),
+        symbolId: symObj.id,
+        symbol: symObj.name,
+        tfId: tfObj.id,
+        timeframe: tfObj.name,
+        direction: result.signal,
+        entry: entry,
+        sl: sl,
+        tp1: tp1,
+        tp2: tp2,
+        validity: validity,
+        pattern: result.pattern,
+        time: new Date().toLocaleTimeString(),
+        status: 'active',
+        pnl: 0,
+        symType: symObj.type
+    };
+    
+    appState.activeTrades.unshift(newTrade);
+    saveTrades();
+    renderTradeTracker();
+}
+
+function evaluateActivePositions(symbolId, tfId, result) {
+    const currentPrice = result.close;
+    let updated = false;
+    
+    appState.activeTrades = appState.activeTrades.filter(trade => {
+        if (trade.symbolId !== symbolId || trade.tfId !== tfId) return true;
+        
+        let closed = false;
+        let outcome = '';
+        
+        if (trade.direction === 'BUY') {
+            if (currentPrice >= trade.tp2) {
+                closed = true;
+                outcome = 'WIN (1:3 TP2)';
+            } else if (currentPrice >= trade.tp1) {
+                closed = true;
+                outcome = 'WIN (1:2 TP1)';
+            } else if (currentPrice <= trade.sl) {
+                closed = true;
+                outcome = 'LOSS (SL)';
+            }
+        } else { // SELL
+            if (currentPrice <= trade.tp2) {
+                closed = true;
+                outcome = 'WIN (1:3 TP2)';
+            } else if (currentPrice <= trade.tp1) {
+                closed = true;
+                outcome = 'WIN (1:2 TP1)';
+            } else if (currentPrice >= trade.sl) {
+                closed = true;
+                outcome = 'LOSS (SL)';
+            }
+        }
+        
+        if (closed) {
+            trade.status = outcome;
+            trade.exitPrice = currentPrice;
+            trade.exitTime = new Date().toLocaleTimeString();
+            appState.historyTrades.unshift(trade);
+            playChime(outcome.startsWith('WIN') ? 'win' : 'loss');
+            updated = true;
+            return false;
+        } else {
+            trade.currentPrice = currentPrice;
+            trade.pnl = trade.direction === 'BUY' ? (currentPrice - trade.entry) : (trade.entry - currentPrice);
+            updated = true;
+            return true;
+        }
+    });
+    
+    if (updated) {
+        saveTrades();
+        renderTradeTracker();
+    }
+}
+
+function saveTrades() {
+    localStorage.setItem('skfx_active_trades', JSON.stringify(appState.activeTrades));
+    localStorage.setItem('skfx_history_trades', JSON.stringify(appState.historyTrades));
+}
+
+function loadTrades() {
+    const active = localStorage.getItem('skfx_active_trades');
+    const history = localStorage.getItem('skfx_history_trades');
+    if (active) {
+        try { appState.activeTrades = JSON.parse(active); } catch(e) {}
+    }
+    if (history) {
+        try { appState.historyTrades = JSON.parse(history); } catch(e) {}
+    }
+}
+
+function renderTradeTracker() {
+    const listContainer = document.getElementById('tracker-list');
+    const tabActive = document.getElementById('tab-active-trades');
+    const tabHistory = document.getElementById('tab-history-trades');
+    const statsEl = document.getElementById('history-stats');
+    
+    if (!listContainer || !tabActive || !tabHistory) return;
+    
+    tabActive.innerText = `Active (${appState.activeTrades.length})`;
+    tabHistory.innerText = `History (${appState.historyTrades.length})`;
+    
+    const totalHistory = appState.historyTrades.length;
+    if (totalHistory > 0) {
+        const wins = appState.historyTrades.filter(t => t.status.startsWith('WIN')).length;
+        const rate = ((wins / totalHistory) * 100).toFixed(0);
+        statsEl.innerText = `Win Rate: ${rate}% (${wins}/${totalHistory})`;
+    } else {
+        statsEl.innerText = 'Win Rate: 0%';
+    }
+    
+    if (appState.trackerTab === 'active') {
+        tabActive.className = 'tracker-tab-btn active';
+        tabHistory.className = 'tracker-tab-btn';
+        
+        if (appState.activeTrades.length === 0) {
+            listContainer.innerHTML = '<div class="no-trades" style="color: var(--color-text-muted); font-size: 12px; text-align: center; padding: 20px;">No active trade positions tracked yet.</div>';
+            return;
+        }
+        
+        listContainer.innerHTML = appState.activeTrades.map(t => {
+            const dec = t.symType === 'crypto' ? 2 : 5;
+            const pnlVal = t.pnl || 0;
+            const isProfit = pnlVal >= 0;
+            const pnlClass = isProfit ? 'bull' : 'bear';
+            const pnlSign = isProfit ? '+' : '';
+            
+            return `
+                <div class="trade-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 12px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong style="color: white; font-size: 13px;">${t.symbol}</strong>
+                            <span style="font-size: 11px; color: var(--color-text-muted); margin-left: 5px;">[${t.timeframe}]</span>
+                            <span style="font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px; margin-left: 5px; background: ${t.direction === 'BUY' ? 'var(--color-bull-bg)' : 'var(--color-bear-bg)'}; color: ${t.direction === 'BUY' ? 'var(--color-bull)' : 'var(--color-bear)'};">${t.direction}</span>
+                        </div>
+                        <div style="font-size: 11px; font-weight: 700; background: rgba(101, 31, 255, 0.15); border: 1px solid var(--color-accent); color: #c09fff; padding: 2px 6px; border-radius: 4px;">
+                            ${t.validity}% Valid
+                        </div>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; text-align: center; font-size: 10px;">
+                        <div>
+                            <div style="color: var(--color-text-muted);">Entry</div>
+                            <div style="color: white; font-weight:600;">${t.entry.toFixed(dec)}</div>
+                        </div>
+                        <div>
+                            <div style="color: var(--color-text-muted);">SL</div>
+                            <div style="color: var(--color-bear); font-weight:600;">${t.sl.toFixed(dec)}</div>
+                        </div>
+                        <div>
+                            <div style="color: var(--color-text-muted);">TP1 (1:2)</div>
+                            <div style="color: var(--color-bull); font-weight:600;">${t.tp1.toFixed(dec)}</div>
+                        </div>
+                        <div>
+                            <div style="color: var(--color-text-muted);">TP2 (1:3)</div>
+                            <div style="color: var(--color-bull); font-weight:600;">${t.tp2.toFixed(dec)}</div>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.03); padding-top: 6px; font-size: 11px;">
+                        <div style="color: var(--color-text-secondary);">Live: <strong style="color: white;">${(t.currentPrice || t.entry).toFixed(dec)}</strong></div>
+                        <div class="value ${pnlClass}" style="font-weight: 800;">
+                            PnL: ${pnlSign}${pnlVal.toFixed(dec)}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    } else {
+        tabActive.className = 'tracker-tab-btn';
+        tabHistory.className = 'tracker-tab-btn active';
+        
+        if (appState.historyTrades.length === 0) {
+            listContainer.innerHTML = '<div class="no-trades" style="color: var(--color-text-muted); font-size: 12px; text-align: center; padding: 20px;">No trade history logged yet.</div>';
+            return;
+        }
+        
+        listContainer.innerHTML = appState.historyTrades.map(t => {
+            const dec = t.symType === 'crypto' ? 2 : 5;
+            const isWin = t.status.startsWith('WIN');
+            const outcomeClass = isWin ? 'bull' : 'bear';
+            
+            return `
+                <div class="trade-card" style="background: rgba(255,255,255,0.01); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 10px; margin-bottom: 8px; font-size: 11px; display: flex; flex-direction: column; gap: 4px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong style="color: white;">${t.symbol}</strong>
+                            <span style="font-size: 10px; color: var(--color-text-muted);">[${t.timeframe}]</span>
+                            <span style="font-size: 9px; padding: 1px 4px; border-radius: 3px; background: ${t.direction === 'BUY' ? 'var(--color-bull-bg)' : 'var(--color-bear-bg)'}; color: ${t.direction === 'BUY' ? 'var(--color-bull)' : 'var(--color-bear)'};">${t.direction}</span>
+                        </div>
+                        <strong class="value ${outcomeClass}" style="font-size: 11px; text-transform: uppercase;">
+                            ${t.status}
+                        </strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; color: var(--color-text-muted); font-size: 10px;">
+                        <span>Entry: <strong style="color: white;">${t.entry.toFixed(dec)}</strong></span>
+                        <span>Exit: <strong style="color: white;">${t.exitPrice.toFixed(dec)}</strong></span>
+                        <span>Val: <strong style="color: #c09fff;">${t.validity}%</strong></span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; color: var(--color-text-muted); font-size: 9px; border-top: 1px solid rgba(255,255,255,0.02); padding-top: 4px;">
+                        <span>${t.pattern}</span>
+                        <span>Exit Time: ${t.exitTime}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
 }
 
 function renderAlertLogs() {
@@ -604,7 +949,7 @@ function renderAlertLogs() {
         
         let headerText = '';
         if (log.kind === 'entry') {
-            headerText = `<strong>${log.type} Entry</strong>`;
+            headerText = `<strong>${log.type} Entry <span style="font-size:10px; font-weight:700; color:#c09fff; margin-left:4px; padding:1px 4px; border: 1px solid rgba(192,159,255,0.3); border-radius:3px; background:rgba(101,31,255,0.1);">${log.validity}% Valid</span></strong>`;
         } else {
             headerText = `<strong style="background: rgba(101, 31, 255, 0.15); border: 1px solid var(--color-accent); color: #c09fff; padding: 2px 6px; border-radius: 4px; font-size: 10px;">${log.type}</strong>`;
         }
@@ -1058,8 +1403,10 @@ function closeSettings() {
 
 document.addEventListener('DOMContentLoaded', () => {
     loadSettings();
+    loadTrades();
     setupSettingsUI();
     initializeMatrixTable();
+    renderTradeTracker();
     
     // Button bindings
     document.getElementById('settings-toggle').addEventListener('click', openSettings);
@@ -1067,6 +1414,20 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('drawer-overlay').addEventListener('click', closeSettings);
     document.getElementById('settings-form').addEventListener('submit', applyFormSettings);
     
+    // Position Tracker Tab bindings
+    const activeTabBtn = document.getElementById('tab-active-trades');
+    const historyTabBtn = document.getElementById('tab-history-trades');
+    if (activeTabBtn && historyTabBtn) {
+        activeTabBtn.addEventListener('click', () => {
+            appState.trackerTab = 'active';
+            renderTradeTracker();
+        });
+        historyTabBtn.addEventListener('click', () => {
+            appState.trackerTab = 'history';
+            renderTradeTracker();
+        });
+    }
+
     // Full screen chart button binding
     const fsBtn = document.getElementById('chart-fullscreen');
     if (fsBtn) {
