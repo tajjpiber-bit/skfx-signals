@@ -1288,8 +1288,12 @@ function getTradingViewTimeframe(tfId) {
 }
 
 function loadTradingViewWidget(symbolId, tfId) {
-    const tvSym = getTradingViewSymbol(symbolId);
+    let tvSym = getTradingViewSymbol(symbolId);
     const tvTf = getTradingViewTimeframe(tfId);
+    
+    // Explicit safety override: Gold must always be OANDA feed
+    if (symbolId === 'XAUUSD=X') tvSym = 'OANDA:XAUUSD';
+    if (symbolId === 'XAGUSD=X') tvSym = 'OANDA:XAGUSD';
     
     // Clean widget container first
     document.getElementById('tv-chart-container').innerHTML = '<div id="tv-widget-box" style="height:100%;width:100%"></div>';
@@ -1323,11 +1327,21 @@ function loadSettings() {
     const saved = localStorage.getItem('skm_dashboard_config');
     if (saved) {
         try {
-            config = JSON.parse(saved);
+            const parsed = JSON.parse(saved);
+            config = { ...config, ...parsed };
         } catch(e) {
             console.error("Config load error:", e);
         }
     }
+    // Always guarantee XAUUSD is included and at the top of enabledSymbols
+    if (!config.enabledSymbols.includes('XAUUSD=X')) {
+        config.enabledSymbols.unshift('XAUUSD=X');
+    } else {
+        // Move it to first position
+        config.enabledSymbols = ['XAUUSD=X', ...config.enabledSymbols.filter(s => s !== 'XAUUSD=X')];
+    }
+    // Always start on XAUUSD
+    appState.selectedSymbol = 'XAUUSD=X';
 }
 
 function saveSettings() {
